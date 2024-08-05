@@ -1,0 +1,222 @@
+/* Código DHT11 */
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define DHT11_PIN 0 // Pin digital donde se conecta el DHT11
+
+uint8_t c=0;
+
+void Request() /* Microcontrolador envía pulso de inicio */
+{
+    DDRC |= (1<<DHT11_PIN);
+    PORTC &= ~(1<<DHT11_PIN);
+    _delay_ms(20);
+    PORTC |= (1<<DHT11_PIN);
+}
+
+void Response() /* Microcontrolador recibe respuesta */
+{
+    DDRC &= ~(1<<DHT11_PIN);
+    while(PINC & (1<<DHT11_PIN));
+    while((PINC & (1<<DHT11_PIN))==0);
+    while(PINC & (1<<DHT11_PIN));
+}
+
+uint8_t Receive_data() /* Recibe datos del sensor */
+{
+    for (int q=0; q<8; q++)
+    {
+        while((PINC & (1<<DHT11_PIN)) == 0);  /* Comprueba bit bajo */
+        _delay_us(30);
+        if(PINC & (1<<DHT11_PIN)) /* Si el pin es alto */
+        c = (c<<1)|(0x01); /* Haciendo bit en cero */
+        else
+        c = (c<<1);
+        while(PINC & (1<<DHT11_PIN));
+    }
+    return c;
+}
+
+int main(void)
+{
+    uint8_t I_RH,D_RH,I_Temp,D_Temp,CheckSum;
+
+    while(1)
+    {
+        Request(); /* Enviando pulso de inicio */
+        Response(); /* Recibiendo respuesta */
+        I_RH=Receive_data(); /* Recibe valor de humedad */
+        D_RH=Receive_data(); /* Recibe valor decimal de humedad */
+        I_Temp=Receive_data(); /* Recibe valor de temperatura */
+        D_Temp=Receive_data(); /* Recibe valor decimal de temperatura */
+        CheckSum=Receive_data(); /* Recibe checksum */
+
+        if ((I_RH + D_RH + I_Temp + D_Temp) != CheckSum)
+        {
+            // Datos erróneos
+        }
+
+        _delay_ms(1000);
+    }
+}
+
+/* Código TSL2561 */
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include "I2C_Master.h"  // Asegúrate de incluir la biblioteca I2C adecuada
+
+#define TSL2561_ADDR 0x39 // Dirección I2C del TSL2561
+
+void TSL2561_init(void)
+{
+    I2C_Start(TSL2561_ADDR << 1);
+    I2C_Write(0x80 | 0x03); // Encender el sensor
+    I2C_Write(0x03);
+    I2C_Stop();
+}
+
+uint16_t TSL2561_readLuminosity(void)
+{
+    uint16_t luminosity;
+    I2C_Start(TSL2561_ADDR << 1);
+    I2C_Write(0x80 | 0x0C); // Leer canal 0
+    I2C_Stop();
+    I2C_Start((TSL2561_ADDR << 1) | 0x01);
+    luminosity = I2C_ReadAck();
+    luminosity |= (I2C_ReadNak() << 8);
+    I2C_Stop();
+    return luminosity;
+}
+
+int main(void)
+{
+    uint16_t luminosity;
+    I2C_Init();
+    TSL2561_init();
+    
+    while(1)
+    {
+        luminosity = TSL2561_readLuminosity();
+        
+        if (luminosity < 100) {
+            // Bajo nivel de luz
+        } else if (luminosity > 1000) {
+            // Alto nivel de luz
+        }
+
+        _delay_ms(1000);
+    }
+}
+
+
+/* Código Módulo de Detección de Lluvia FC-37 */
+
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define RAIN_SENSOR_PIN PC0
+
+void ADC_Init()
+{
+    ADMUX = (1<<REFS0); // AVcc como referencia
+    ADCSRA = (1<<ADEN) | (1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0); // Habilitar ADC y prescaler de 128
+}
+
+uint16_t ADC_Read(uint8_t channel)
+{
+    channel &= 0x07;  // Asegúrate de que el canal esté dentro del rango
+    ADMUX = (ADMUX & 0xF8) | channel;  // Selecciona el canal de entrada
+    ADCSRA |= (1<<ADSC);  // Inicia la conversión
+    while(!(ADCSRA & (1<<ADIF)));  // Espera a que la conversión termine
+    ADCSRA |= (1<<ADIF);  // Limpia el bit ADIF
+    return (ADC);
+}
+
+int main(void)
+{
+    uint16_t rainValue;
+    ADC_Init();
+
+    while (1)
+    {
+        rainValue = ADC_Read(RAIN_SENSOR_PIN);
+        
+        if (rainValue < 300) {
+            // Lluvia detectada
+        } else {
+            // Sin lluvia
+        }
+
+        _delay_ms(1000);
+    }
+}
+
+/* Código motor DC */
+
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define MOTOR_PIN PB3
+
+void PWM_Init()
+{
+    DDRB |= (1<<MOTOR_PIN); // Configura el pin del motor como salida
+    TCCR0A = (1<<COM0A1) | (1<<WGM00) | (1<<WGM01); // Fast PWM, non-inverted
+    TCCR0B = (1<<CS00); // Sin prescaler
+}
+
+void setMotorSpeed(uint8_t speed)
+{
+    OCR0A = speed; // Ajusta la velocidad del motor
+}
+
+int main(void)
+{
+    PWM_Init();
+
+    while (1)
+    {
+        setMotorSpeed(255); // Velocidad máxima
+        _delay_ms(5000);    // Motor encendido por 5 segundos
+        setMotorSpeed(0);   // Apaga el motor
+        _delay_ms(5000);    // Motor apagado por 5 segundos
+    }
+}
+
+/* Código motor servo */
+
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define SERVO_PIN PB1
+
+void Servo_Init()
+{
+    DDRB |= (1<<SERVO_PIN); // Configura el pin del servo como salida
+    TCCR1A = (1<<COM1A1) | (1<<WGM11); // Fast PWM
+    TCCR1B = (1<<WGM13) | (1<<WGM12) | (1<<CS11); // Prescaler de 8
+    ICR1 = 19999; // Frecuencia de 50Hz
+}
+
+void setServoAngle(uint8_t angle)
+{
+    uint16_t pulseWidth = ((angle * 11) + 500); // Calcula el ancho de pulso
+    OCR1A = pulseWidth; // Ajusta el ancho del pulso
+}
+
+int main(void)
+{
+    Servo_Init();
+
+    while (1)
+    {
+        setServoAngle(0); // Posición inicial (0 grados)
+        _delay_ms(1000);  // Espera 1 segundo
+        setServoAngle(90); // Gira a 90 grados
+        _delay_ms(1000);  // Espera 1 segundo
+        setServoAngle(180); // Gira a 180 grados
+        _delay_ms(1000);  // Espera 1 segundo
+    }
+}
+
